@@ -27,7 +27,7 @@ export default function AboutDialog({ liveAvailable, onClose }: {
           <MessageSquareText size={20} />
           <div>
             <h3>Custom analysis needs live mode</h3>
-            <p>{liveAvailable ? "Live mode is configured. Select Live beside Run review to analyze custom sources." : "Live mode is not configured. Additional sources can be saved for later; free-form questions become available after a live review."}</p>
+            <p>{liveAvailable ? "Live mode is configured. Model output is evidence-checked, and Activity shows when grounded analysis replaced an invalid or unavailable response." : "Live mode is not configured. Additional sources can be saved for later; free-form questions become available after a live review."}</p>
           </div>
         </div>
         <p className="muted">Downloads are local JSON files. Nothing is sent to a founder or CRM.</p>

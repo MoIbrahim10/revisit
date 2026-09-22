@@ -40,7 +40,7 @@ For separate terminals, run `npm run db:setup`, then `npm run worker` and `npm r
 | Database, queue, worker, run progress, retries, review history | Real PostgreSQL persistence and pg-boss execution |
 | Claim normalization, temporal comparison, trigger evaluation, citation checks | Deterministic application code |
 | Recorded inference | Hand-authored extraction fixtures; contextual answers and assessments derived from validated claims. No model call occurs. |
-| Live inference | Optional Vercel AI SDK adapter for OpenRouter, NVIDIA, or OpenAI; requires server-provided credentials and an explicit model supporting structured outputs |
+| Live inference | Hybrid Vercel AI SDK adapter for OpenRouter, NVIDIA, or OpenAI; model output is accepted only after deterministic evidence checks, with an observable grounded fallback |
 | Company, documents, figures, analyst history | Entirely fictional |
 | CRM handoff | Downloadable internal JSON format, explicitly unsent; no Affinity integration |
 | Website/deck/finance ingestion | Pasted text and curated excerpts; no crawler, PDF parser, or OCR |
@@ -49,12 +49,13 @@ Recorded mode only analyzes the unchanged source pack and answers its four sugge
 
 For live mode, set `AI_PROVIDER` to `openrouter`, `nvidia`, or `openai`, set `AI_MODEL` to an explicit model ID, and supply the matching `OPENROUTER_API_KEY`, `NVIDIA_API_KEY`, or `OPENAI_API_KEY` in both the web and worker process environments. Existing `OPENAI_API_KEY` + `OPENAI_MODEL` configuration remains supported when no provider is selected. Supply credentials through your own secret management; no environment or credential files are included.
 
-The selected model must support strict JSON-schema output through Chat Completions. OpenRouter offers free model variants, and NVIDIA offers developer access for prototyping; availability, quotas, and schema support vary by model. No automatic model or paid fallback is selected. A credentialed live review has completed through the application; the broader adversarial suite still has failures. Recorded mode remains the dependable reviewer path. See [measured live results](docs/live-evaluation.md). See [provider setup and limitations](docs/ai-execution.md).
+The selected model must support strict JSON-schema output through Chat Completions. OpenRouter offers free model variants, and NVIDIA offers developer access for prototyping; availability and quotas vary. No automatic model or paid fallback is selected. Two credentialed `live-v4` adversarial runs passed all 14 checks: the first exercised successful model responses plus validated fallbacks, and the second completed while every free-provider call was rate-limited. See [measured live results](docs/live-evaluation.md) and [provider setup](docs/ai-execution.md).
 
 ## Engineering decisions
 
 - **One bounded workflow:** ingest → extract → reconcile → assess → verify → publish. The model does not choose tools or write external records.
 - **Evidence before prose:** exact quotations, offsets, source versions, dates, definitions, and claim references are validated. Quotation validity does not prove a business claim is true.
+- **Hybrid degradation:** a bounded high-precision extractor and grounded answer renderer preserve a review when optional model wording is incomplete, unavailable, or inconsistent. Activity traces expose every fallback code.
 - **Temporal correctness:** the April baseline and June statements establish change; different definitions cannot establish a contradiction.
 - **Durable processing:** enqueue and the frozen input manifest commit together. Successful stages are checkpoints; publication and completed status share a transaction.
 - **Concurrency and recovery:** per-run advisory locks fence competing deliveries; unique constraints prevent duplicate stage results, snapshots, and reviews. Queue terminal-state reconciliation exposes a worker's final interrupted attempt for retry.
@@ -84,6 +85,7 @@ Unit and offline SDK tests require no running services. Integration tests use a 
 | [Workflow](src/server/workflow.ts) | Checkpoints, locking, retries, atomic publication |
 | [Schema](src/server/schema.sql) | Relational source/run/claim/evidence/decision constraints |
 | [Live adapter](src/server/ai.ts) | Structured model outputs and bounded failure handling |
+| [Grounding layer](src/server/grounding.ts) | High-precision extraction, requested-metric coverage, and deterministic answer fallback |
 | [Workspace](src/components/workspace.tsx) | Shared orchestration with separate review, sources, questions, decisions, and activity views |
 | [Live verification](scripts/verify-live.ts) | Bounded free-model evaluation with actual evidence, adversarial cases, and failure reports |
 | [Tests](tests) | Adversarial evidence checks and execution invariants |

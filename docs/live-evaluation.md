@@ -1,8 +1,19 @@
 # Bounded live evaluation
 
-These completed OpenRouter evaluations used fictional company evidence on September 17 and 22, 2026. No harness run in the table passed every check; a separate UI and worker check completed successfully. These results demonstrate observed behavior and validation failures, not a model benchmark or a production-reliability claim. Prompts and configuration changed between runs, so the rows are not controlled model comparisons.
+These completed OpenRouter evaluations used fictional company evidence on September 17 and 22, 2026. They demonstrate product behavior under actual free-provider responses, not a model benchmark or an availability guarantee. Prompts and architecture changed between runs, so the historical rows are not controlled model comparisons.
 
-## Completed results
+## Passing hybrid evaluation
+
+`live-v4` moves source fidelity and final answer coverage into deterministic code while retaining structured model extraction, assessment wording, and answers when they pass the same evidence rules. Rejected or unavailable model results produce an observable `hybrid-fallback:<code>` stage result rather than unsafe prose or a failed review.
+
+| Run | Prompt | Passed | Failed | Skipped | Model requests | Result |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| `v4-pass-1` | `live-v4` | 14 | 0 | 0 | 11 | Successful model responses plus four grounded fallbacks |
+| `v4-pass-2` | `live-v4` | 14 | 0 | 0 | 11 | All provider calls rate-limited; every scenario completed through grounded fallbacks |
+
+Both runs used `nex-agi/nex-n2.5-mini:free` with reasoning effort `none`. The first reported 20,659 tokens with usage present for all 11 calls. It verified original evidence, changed figures, prompt-injection text, an unsupported financial question, and missing evidence. The immediate repeat verifies graceful degradation under an actual provider outage; it is not evidence that the provider itself was available.
+
+## Historical pre-hybrid results
 
 Each saved run is `.local/live-verification-<run>.json`. These local reports are excluded from version control; this document includes neither credentials nor raw model output.
 
@@ -17,7 +28,7 @@ Each saved run is `.local/live-verification-<run>.json`. These local reports are
 | `nex-mini-none` | `nex-agi/nex-n2.5-mini:free` | 7 | 3 | 4 | 8 |
 | `dots` | `dots-studio/dots-3-note-preview:free` | 2 | 3 | 9 | 4 |
 
-Counts describe harness checks, including catalog preflight and deterministic reconciliation; they are not counts of correct model responses. Failed prerequisites skip dependent checks without substituting recorded results. The Qwen run stopped at the capability preflight and made no inference request. `nex-mini-none` records `promptVersion: live-v3` and `reasoningEffort: none`; `dots` records `live-v3` and `provider-default`. Earlier reports did not record these fields.
+Counts describe harness checks, including catalog preflight and deterministic reconciliation; they are not counts of correct model responses. These runs predate the hybrid fallback and are retained to show which failures motivated it. Failed prerequisites skipped dependent checks without substituting recorded results. The Qwen run stopped at capability preflight and made no inference request.
 
 ## Separate UI and worker check
 
@@ -36,13 +47,13 @@ Trace: run `74ecc693-7277-4593-ac78-a8f0259a4647`; snapshot `dce90d47-92e3-4343-
 - With reasoning explicitly disabled, Nex mini completed without a recorded truncation or timeout, but still failed numeric grounding and injected-source validation. The configuration change did not produce a fully passing run.
 - Dots recovered the original six metrics, then produced a truncated assessment, failed changed-evidence validation, and encountered a provider request rejection. The harness stopped further requests after that rejection.
 
-## Changes included in `live-v3`
+## Changes included in `live-v4`
 
-Assessment context excludes earlier narrative prose containing computed gaps or decision thresholds. Wording instructions require citation IDs in their dedicated array, exact ISO dates, and source-supported numbers. Extraction instructions require contiguous passages with unchanged line breaks; missing-evidence instructions require an empty factual-paragraph array and explicit unknowns.
+Assessment context excludes earlier narrative prose containing computed gaps or decision thresholds. Wording instructions require dedicated citation arrays, exact ISO dates, and source-supported numbers. High-confidence extraction recognizes only declarative passages in the bounded metric vocabulary, anchors exact offsets, and ignores the tested imperative injection. Model extraction must cover that evidence set. Grounded answer rendering covers supported requested metrics and represents unsupported finance questions as unknown.
 
-Optional OpenRouter reasoning effort controls address models that consume their output budget before producing JSON. The exact observed HTTP-200/numeric-503 envelope is classified as a retryable availability failure. Offline regressions cover these cases; evidence, citation, numeric, and completion validators were not weakened.
+Optional OpenRouter reasoning effort controls address models that consume their output budget before producing JSON. The exact observed HTTP-200/numeric-503 envelope remains classified as an availability failure. Offline regressions cover malformed responses, provider failures, injection-shaped passages, and incomplete answers. Evidence, citation, numeric, and completion validators were not weakened.
 
-The harness retains a hard ceiling of 12 model requests per run, 45-second request timeouts, bounded outputs, no SDK retries, and a verified free-model catalog preflight. It stops further requests on quota, rate-limit, or access failures. Reports retain failures and identify unavailable usage rather than inventing token counts. No application database records are written by the harness.
+The harness retains a hard ceiling of 12 model requests per run, 45-second request timeouts, bounded outputs, no SDK retries, and a verified free-model catalog preflight. Provider failures handled by the hybrid adapter remain visible and do not stop later scenarios; the harness stops only when a blocking failure escapes the adapter. Reports retain failures and identify unavailable usage rather than inventing token counts. No application database records are written by the harness.
 
 Reproduce with [the live verification instructions](ai-execution.md#bounded-live-verification) and inspect [the harness](../scripts/verify-live.ts). A successful offline test suite verifies application behavior under controlled responses; it does not replace a completed live evaluation.
 

@@ -31,7 +31,7 @@ export async function askQuestion(question: string, snapshotId: string): Promise
     const result = await answerLive(question, snapshot, context);
     answer = result.answer;
     model = result.model;
-    tokens = result.tokens;
+    tokens = result.tokens ?? null;
   }
   answer = answerSchema.parse(answer);
   const claims = new Map(snapshot.claims.map((claim) => [claim.id, claim]));

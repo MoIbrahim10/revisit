@@ -5,8 +5,9 @@ import { z } from "zod";
 import { validateAssessment, validateClaims } from "../domain/engine";
 import { answerSchema, citedTextSchema, claimSchema } from "../domain/schemas";
 import type { Answer, Assessment, Baseline, Claim, CitedText, Finding, Snapshot, Source } from "../domain/types";
+import { answerCoversQuestion, evidenceSignature, extractGroundedClaims, renderGroundedAnswer } from "./grounding";
 
-export const LIVE_PROMPT_VERSION = "live-v3";
+export const LIVE_PROMPT_VERSION = "live-v4";
 
 const extractionDraftSchema = z.strictObject({
   claims: z.array(claimSchema.omit({ id: true, start: true, end: true })).max(100),
@@ -130,6 +131,12 @@ function validateDomain(check: () => void): void {
   }
 }
 
+function fallback(stage: "extract" | "assess" | "answer", error: unknown): { model: string; tokens?: number } {
+  const failure = providerError(error);
+  console.warn(JSON.stringify({ event: "ai_fallback", stage, code: failure.code, retryable: failure.retryable }));
+  return { model: `hybrid-fallback:${failure.code}` };
+}
+
 /** Dependency injection keeps SDK serialization and failure tests completely offline. */
 export function createLiveAdapter(model: LanguageModel) {
   async function request<T>(schema: z.ZodType<T>, name: string, task: string, context: unknown, maxOutputTokens: number) {
@@ -167,31 +174,41 @@ export function createLiveAdapter(model: LanguageModel) {
   }
 
   return {
-    async extract(sources: Source[]): Promise<{ claims: Claim[]; model: string; tokens: number }> {
+    async extract(sources: Source[]): Promise<{ claims: Claim[]; model: string; tokens?: number }> {
       validateSources(sources);
-      const result = await request(extractionDraftSchema, "extracted_claims", `Extract explicit numeric claims only for paying_customers, teams, mrr, and retention.
+      const grounded = extractGroundedClaims(sources);
+      validateDomain(() => validateClaims(grounded, sources));
+      try {
+        const result = await request(extractionDraftSchema, "extracted_claims", `Extract explicit numeric claims only for paying_customers, teams, mrr, and retention.
 Use canonical units: paying_customers=organizations, teams=teams, mrr=USD/month, retention=%.
 Quote a complete exact contiguous passage from the source body supporting the metric and value. Prefer a single complete sentence. Never paraphrase, join separate sentences, or replace line breaks with spaces; preserve every character of the selected passage.
 Set asOf to that source's effectiveDate (or empty if unknown), never its capturedAt.
 Use a descriptive definition verbatim from the quote, or 'not specified' if none exists. Preserve exclusions such as trials and pilots.
 Do not merge sources, calculate, infer unsupported values, or confuse total teams with paying customers. Omit ambiguous claims.`, {
-        sources: sources.map(({ id, title, body, effectiveDate }) => ({ id, title, body, effectiveDate })),
-      }, 8_000);
-      const claims = result.output.claims.map((draft) => {
-        const source = sources.find((item) => item.id === draft.sourceId);
-        const start = source?.body.indexOf(draft.quote) ?? -1;
-        if (start < 0) throw new AiError("AI_INVALID_QUOTE", "An extracted claim did not match an exact source passage.", false);
-        const id = `claim-${createHash("sha256").update(JSON.stringify([draft.sourceId, draft.metric, draft.value, draft.definition, start])).digest("hex").slice(0, 24)}`;
-        return { ...draft, id, start, end: start + draft.quote.length };
-      });
-      validateDomain(() => validateClaims(claims, sources));
-      return { claims, model: result.model, tokens: result.tokens };
+          sources: sources.map(({ id, title, body, effectiveDate }) => ({ id, title, body, effectiveDate })),
+        }, 8_000);
+        const claims = result.output.claims.map((draft) => {
+          const source = sources.find((item) => item.id === draft.sourceId);
+          const start = source?.body.indexOf(draft.quote) ?? -1;
+          if (start < 0) throw new AiError("AI_INVALID_QUOTE", "An extracted claim did not match an exact source passage.", false);
+          const id = `claim-${createHash("sha256").update(JSON.stringify([draft.sourceId, draft.metric, draft.value, draft.definition, start])).digest("hex").slice(0, 24)}`;
+          return { ...draft, id, start, end: start + draft.quote.length };
+        });
+        validateDomain(() => validateClaims(claims, sources));
+        if (grounded.length && JSON.stringify(evidenceSignature(claims)) !== JSON.stringify(evidenceSignature(grounded))) {
+          throw new AiError("AI_COVERAGE_MISMATCH", "The model extraction did not match the high-confidence evidence set.", false);
+        }
+        return { claims, model: result.model, tokens: result.tokens };
+      } catch (error) {
+        return { claims: grounded, ...fallback("extract", error) };
+      }
     },
 
-    async assess(assessment: Assessment, claims: Claim[], baseline: Baseline): Promise<{ assessment: Assessment; model: string; tokens: number }> {
+    async assess(assessment: Assessment, claims: Claim[], baseline: Baseline): Promise<{ assessment: Assessment; model: string; tokens?: number }> {
       validateDomain(() => validateAssessment(assessment, claims));
       if (!claims.length) return { assessment, model: "no-model:insufficient-evidence", tokens: 0 };
-      const result = await request(assessmentDraftSchema, "assessment_wording", `Draft a short summary and up to three founder questions from the validated claims and deterministic assessment.
+      try {
+        const result = await request(assessmentDraftSchema, "assessment_wording", `Draft a short summary and up to three founder questions from the validated claims and deterministic assessment.
 Do not change, contradict, or decide the criteria, findings, or headline. Preserve every unresolved conflict in your summary.
 Each summary/question must cite supporting claimIds. Write new questions from the source evidence; never invent a numeric gap or restate a numeric decision threshold.
 ${narrativeRules}`, {
@@ -202,19 +219,22 @@ ${narrativeRules}`, {
         },
         claims,
         priorAction: baseline.action,
-      }, 2_000);
-      validateCitations([result.output.summary, ...result.output.founderQuestions], claims);
-      validateConflictCitations([result.output.summary, ...result.output.founderQuestions], assessment.findings);
-      if (assessment.findings.some((finding) => finding.kind === "conflict"
-        && finding.claimIds.some((id) => !result.output.summary.claimIds.includes(id)))) {
-        throw new AiError("AI_CONFLICT_OMITTED", "The generated summary omitted a known evidence conflict.", false);
+        }, 2_000);
+        validateCitations([result.output.summary, ...result.output.founderQuestions], claims);
+        validateConflictCitations([result.output.summary, ...result.output.founderQuestions], assessment.findings);
+        if (assessment.findings.some((finding) => finding.kind === "conflict"
+          && finding.claimIds.some((id) => !result.output.summary.claimIds.includes(id)))) {
+          throw new AiError("AI_CONFLICT_OMITTED", "The generated summary omitted a known evidence conflict.", false);
+        }
+        const updated = { ...assessment, summary: result.output.summary.text, founderQuestions: result.output.founderQuestions };
+        validateDomain(() => validateAssessment(updated, claims));
+        return { assessment: updated, model: result.model, tokens: result.tokens };
+      } catch (error) {
+        return { assessment, ...fallback("assess", error) };
       }
-      const updated = { ...assessment, summary: result.output.summary.text, founderQuestions: result.output.founderQuestions };
-      validateDomain(() => validateAssessment(updated, claims));
-      return { assessment: updated, model: result.model, tokens: result.tokens };
     },
 
-    async answer(question: string, snapshot: Snapshot, sources: Source[]): Promise<{ answer: Answer; model: string; tokens: number }> {
+    async answer(question: string, snapshot: Snapshot, sources: Source[]): Promise<{ answer: Answer; model: string; tokens?: number }> {
       if (!question.trim() || question.length > 1_000) throw new AiError("AI_QUESTION_INVALID", "Enter a question of at most 1,000 characters.", false);
       validateSources(sources, snapshot.companyId);
       const sourceIds = new Set(sources.map((source) => source.id));
@@ -229,7 +249,16 @@ ${narrativeRules}`, {
         throw new AiError("AI_CONTEXT_INCOMPLETE", "The retrieved evidence is missing a conflicting source.", false);
       }
       const findings = relevantFindings.filter((finding) => finding.claimIds.every((id) => claimIds.has(id)));
-      const result = await request(answerDraftSchema, "cited_answer", `Answer the question using only the supplied snapshot evidence.
+      const grounded = renderGroundedAnswer({
+        question,
+        claims,
+        findings,
+        criteria: snapshot.criteria.filter((criterion) => criterion.claimIds.every((id) => claimIds.has(id))),
+        retrievedSourceIds: [...sourceIds],
+        founderQuestions: snapshot.founderQuestions,
+      });
+      try {
+        const result = await request(answerDraftSchema, "cited_answer", `Answer the question using only the supplied snapshot evidence.
 Every factual paragraph must cite supporting claimIds from this context. Keep conflicting values together and identify differences in dates or definitions.
 Copy numeric values from cited claims; do not calculate new numbers. Unknowns must describe missing evidence, never assert new facts or values.
 If evidence is insufficient, return paragraphs: [] and put the explanation only in unknowns. Never put uncited statements about missing evidence in paragraphs. Do not answer unrelated questions.
@@ -238,17 +267,23 @@ ${narrativeRules}`, {
         claims,
         findings,
         sources: sources.map(({ id, title, body, effectiveDate, publisherGroup }) => ({ id, title, body, effectiveDate, publisherGroup })),
-      }, 2_000);
-      validateCitations(result.output.paragraphs, claims);
-      validateConflictCitations(result.output.paragraphs, findings);
-      if (!result.output.paragraphs.length && !result.output.unknowns.length) {
-        throw new AiError("AI_EMPTY_OUTPUT", "The model provided neither an answer nor an evidence limitation.", false);
+        }, 2_000);
+        validateCitations(result.output.paragraphs, claims);
+        validateConflictCitations(result.output.paragraphs, findings);
+        if (!result.output.paragraphs.length && !result.output.unknowns.length) {
+          throw new AiError("AI_EMPTY_OUTPUT", "The model provided neither an answer nor an evidence limitation.", false);
+        }
+        if (result.output.unknowns.some((unknown) => numericValues(unknown).length > 0)) {
+          throw new AiError("AI_UNSUPPORTED_NUMBER", "Uncited limitations cannot introduce numeric claims.", false);
+        }
+        const answer = answerSchema.parse({ ...result.output, mode: "live", retrievedSourceIds: [...sourceIds] });
+        if (!answerCoversQuestion(answer, question, claims)) {
+          throw new AiError("AI_COVERAGE_MISMATCH", "The model answer omitted available evidence requested by the question.", false);
+        }
+        return { answer, model: result.model, tokens: result.tokens };
+      } catch (error) {
+        return { answer: grounded, ...fallback("answer", error) };
       }
-      if (result.output.unknowns.some((unknown) => numericValues(unknown).length > 0)) {
-        throw new AiError("AI_UNSUPPORTED_NUMBER", "Uncited limitations cannot introduce numeric claims.", false);
-      }
-      const answer = answerSchema.parse({ ...result.output, mode: "live", retrievedSourceIds: [...sourceIds] });
-      return { answer, model: result.model, tokens: result.tokens };
     },
   };
 }
