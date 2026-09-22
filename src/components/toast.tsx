@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { CircleAlert, CircleCheck, X } from "lucide-react";
+import type { WorkspaceNotice } from "./workspace-types";
 
 export default function Toast({ notice, onDismiss }: {
-  notice: { text: string; error?: boolean } | null;
+  notice: WorkspaceNotice | null;
   onDismiss: () => void;
 }) {
   const [hovered, setHovered] = useState(false);

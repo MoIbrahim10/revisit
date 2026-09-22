@@ -60,7 +60,7 @@ export async function getRun(id: string): Promise<Run> {
   return { id: row.id, status: row.status, mode: row.mode, createdAt: row.created_at.toISOString(), completedAt: row.completed_at?.toISOString() ?? null, error: row.error, recoveryTest: row.recovery_test, executions };
 }
 export async function createRun(input: { mode: Mode; idempotencyKey: string; recoveryTest?: boolean }): Promise<Run> {
-  if (input.mode === "live" && !isLiveAvailable()) throw new AppError("LIVE_NOT_CONFIGURED", "Live mode needs server-side OPENAI_API_KEY and OPENAI_MODEL. Recorded mode is ready to use.", 422);
+  if (input.mode === "live" && !isLiveAvailable()) throw new AppError("LIVE_NOT_CONFIGURED", "Live mode needs a valid server-side provider, model, and matching API key. Recorded mode is ready to use.", 422);
   const queue = await getQueue();
   const id = await transaction(async (client) => {
     const runId = randomUUID();

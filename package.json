@@ -15,7 +15,8 @@
     "test:integration": "tsx scripts/test-integration.ts",
     "db:setup": "tsx scripts/setup.ts",
     "worker": "tsx scripts/worker.ts",
-    "demo": "tsx scripts/demo.ts"
+    "demo": "tsx scripts/demo.ts",
+    "verify:live": "tsx scripts/verify-live.ts"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "3.0.51",

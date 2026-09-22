@@ -6,7 +6,7 @@ Verified locally on 17 September 2026 with Node.js 24.21.0, PostgreSQL 18.2, and
 
 | Command | Result | Coverage |
 | --- | --- | --- |
-| `npm test` | 35 passed | 16 domain tests and 19 offline SDK transport tests |
+| `npm test` | 38 passed | 16 domain tests and 22 offline SDK transport tests |
 | `npm run test:integration` | 12 passed | Actual PostgreSQL and pg-boss using the isolated `revisit_test` database |
 | `npm run typecheck` | Passed | TypeScript checking across application, worker, scripts, and tests |
 | `npm run build` | Passed | Next.js production compilation, type checking, and route generation |
@@ -39,8 +39,14 @@ The notification polish pass removes the header workspace label and places progr
 
 These are focused manual browser checks, not an automated cross-browser, screen-reader, or load-testing suite.
 
+## Reviewer-readiness follow-up
+
+On 22 September 2026, reran all 38 offline tests, 12 PostgreSQL integration tests, type checking, and the production build successfully. The workspace now delegates each view and dialog to focused components while retaining shared run orchestration and snapshot-bound question state. Rechecked assessment expansion, exact-passage comparison, Escape/focus restoration, and the founder-question shortcut in the production browser UI.
+
+A separate fresh clone of the published baseline was installed with `npm ci`, initialized in its own local PostgreSQL cluster, tested, and production-built on 17 September. The temporary database was then stopped. The local API key is owner-readable/writable only and Git-ignored; a scan of tracked and publishable files found no copy of it.
+
 ## Boundaries
 
-The credentialed live-model path has not been executed. Recorded mode is the verified reviewer path and requires no API key. Custom source text and unsupported questions require live mode; the application does not substitute fixture answers for arbitrary input. Added custom sources remain stored for live analysis; recorded reviews explicitly freeze only the four curated sources and still validate their unchanged contents.
+A credentialed live review completed through the browser, PostgreSQL queue, worker, evidence validation, and publication in an isolated local database. The broader adversarial live evaluation has not passed in full. Provider timeouts, service errors, invalid quotation formatting, and output truncation were rejected before publication. Recorded mode remains the dependable reviewer path and requires no API key. See [live evaluation results](live-evaluation.md). Custom source text and unsupported questions require live mode; the application does not substitute fixture answers for arbitrary input. Added custom sources remain stored for live analysis; recorded reviews explicitly freeze only the four curated sources and still validate their unchanged contents.
 
 This is a local, single-company demonstration with fictional information. It has no authentication, public hosting, multi-tenant authorization, production migration system, PDF/OCR processing, or external CRM writes. Quote validation establishes source fidelity and limited consistency, not the truth of the underlying company statements. Human review remains necessary.

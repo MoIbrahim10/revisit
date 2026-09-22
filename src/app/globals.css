@@ -41,7 +41,7 @@ svg { flex-shrink: 0; vertical-align: middle; stroke-width: 1.7; }
 .demo-button > span { width: 6px; height: 6px; border-radius: 50%; background: #6f9e80; }
 .page-content { max-width: 1248px; padding: 28px 40px 24px; margin: auto; }
 .breadcrumb { display: flex; gap: 10px; align-items: center; color: var(--muted); font-size: 12px; margin-bottom: 25px; }
-.company-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.company-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
 .company-heading { display: flex; align-items: center; gap: 16px; }
 .company-monogram { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 15px; color: #426857; background: #e8eee4; border: 1px solid #dce5d6; font-size: 19px; font-weight: 600; letter-spacing: -1px; }
 .company-title { display: flex; align-items: center; gap: 12px; }
@@ -338,7 +338,8 @@ h1 { font-size: 30px; letter-spacing: -1px; line-height: 1.2; }
   .page-content { padding: 24px 22px; }
   .breadcrumb { margin-bottom: 21px; }
   .company-header { align-items: flex-start; flex-wrap: wrap; gap: 18px; }
-  .company-actions { width: 100%; }
+  .company-actions { width: 100%; flex-wrap: wrap; }
+  .company-actions .mode-picker { width: 100%; }
   .company-actions .button.primary { flex: 1; }
   h1 { font-size: 28px; }
   .company-description { font-size: 12px; margin-top: 14px; }

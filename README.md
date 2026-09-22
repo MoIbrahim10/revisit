@@ -49,7 +49,7 @@ Recorded mode only analyzes the unchanged source pack and answers its four sugge
 
 For live mode, set `AI_PROVIDER` to `openrouter`, `nvidia`, or `openai`, set `AI_MODEL` to an explicit model ID, and supply the matching `OPENROUTER_API_KEY`, `NVIDIA_API_KEY`, or `OPENAI_API_KEY` in both the web and worker process environments. Existing `OPENAI_API_KEY` + `OPENAI_MODEL` configuration remains supported when no provider is selected. Supply credentials through your own secret management; no environment or credential files are included.
 
-The selected model must support strict JSON-schema output through Chat Completions. OpenRouter offers free model variants, and NVIDIA offers developer access for prototyping; availability, quotas, and schema support vary by model. No automatic model or paid fallback is selected. Live-provider behavior remains unverified without a credentialed run. See [provider setup and limitations](docs/ai-execution.md).
+The selected model must support strict JSON-schema output through Chat Completions. OpenRouter offers free model variants, and NVIDIA offers developer access for prototyping; availability, quotas, and schema support vary by model. No automatic model or paid fallback is selected. A credentialed live review has completed through the application; the broader adversarial suite still has failures. Recorded mode remains the dependable reviewer path. See [measured live results](docs/live-evaluation.md). See [provider setup and limitations](docs/ai-execution.md).
 
 ## Engineering decisions
 
@@ -84,6 +84,8 @@ Unit and offline SDK tests require no running services. Integration tests use a 
 | [Workflow](src/server/workflow.ts) | Checkpoints, locking, retries, atomic publication |
 | [Schema](src/server/schema.sql) | Relational source/run/claim/evidence/decision constraints |
 | [Live adapter](src/server/ai.ts) | Structured model outputs and bounded failure handling |
+| [Workspace](src/components/workspace.tsx) | Shared orchestration with separate review, sources, questions, decisions, and activity views |
+| [Live verification](scripts/verify-live.ts) | Bounded free-model evaluation with actual evidence, adversarial cases, and failure reports |
 | [Tests](tests) | Adversarial evidence checks and execution invariants |
 
 Loop3's published [historical snapshots](https://www.loop3.ai/case-studies/company-and-people-snapshots) and [context article](https://www.loop3.ai/news/the-real-ai-advantage-isn-t-chat-gpt-or-claude-it-s-context) informed the concept. This project is independent and is not a Loop3 product or client-data reproduction.

@@ -95,8 +95,31 @@ test("provider selection routes strict structured requests to the selected servi
     assert.equal(requests[0].models, undefined);
     assert.deepEqual(requests[0].provider, provider === "openrouter" ? { require_parameters: true } : undefined);
     assert.equal(requests[0].store, provider === "openai" ? false : undefined);
+    assert.equal(requests[0].reasoning, undefined);
     assert.equal(requests[0].max_tokens, provider === "openai" ? undefined : 8_000);
     assert.equal(requests[0].max_completion_tokens, provider === "openai" ? 8_000 : undefined);
+  }
+});
+
+test("OpenRouter reasoning effort is explicit, bounded, and rejected for other providers", async () => {
+  for (const effort of ["none", "low", "medium", "high"] as const) {
+    const config = resolveLiveConfig({ AI_PROVIDER: "openrouter", AI_MODEL: "offline-test-model", OPENROUTER_API_KEY: "offline-key", AI_REASONING_EFFORT: effort });
+    assert.equal(config?.reasoningEffort, effort);
+    const requests: Record<string, unknown>[] = [];
+    const model = createProviderModel(config!, async (_url, init) => {
+      requests.push(JSON.parse(String(init?.body)));
+      return Response.json(responseBody(extraction()));
+    });
+    await createLiveAdapter(model).extract(sources);
+    assert.deepEqual(requests[0].reasoning, { effort });
+    assert.equal(requests[0].max_tokens, 8_000);
+    assert.deepEqual(requests[0].provider, { require_parameters: true });
+  }
+  assert.equal(resolveLiveConfig({ AI_PROVIDER: "openrouter", AI_MODEL: "offline-model", OPENROUTER_API_KEY: "offline-key", AI_REASONING_EFFORT: "unsupported" }), undefined);
+  for (const provider of ["openai", "nvidia"] as const) {
+    const key = provider === "openai" ? "OPENAI_API_KEY" : "NVIDIA_API_KEY";
+    assert.equal(resolveLiveConfig({ AI_PROVIDER: provider, AI_MODEL: "offline-model", [key]: "offline-key", AI_REASONING_EFFORT: "none" }), undefined);
+    assert.throws(() => createProviderModel({ provider, model: "offline-model", apiKey: "offline-key", reasoningEffort: "none" }), hasCode("AI_CONFIG_INVALID"));
   }
 });
 
@@ -149,6 +172,7 @@ test("refused, incomplete, empty, and malformed outputs cannot become successful
     { body: responseBody({ claims: [] }, { choices: [{ message: { role: "assistant", content: "{}" }, finish_reason: "length" }] }), code: "AI_INCOMPLETE" },
     { body: responseBody(null, { choices: [] }), code: "AI_EMPTY_OUTPUT" },
     { body: responseBody({ claims: "invalid" }), code: "AI_INVALID_OUTPUT" },
+    { body: { error: { code: "provider_error", message: "Private upstream failure despite HTTP success." } }, code: "AI_INVALID_OUTPUT" },
     { body: responseBody({ claims: [] }, { usage: null }), code: "AI_USAGE_MISSING" },
     { body: responseBody({ claims: [] }, { usage: { prompt_tokens: 100 } }), code: "AI_USAGE_MISSING" },
     { body: responseBody({ claims: [] }, { model: null }), code: "AI_MODEL_MISSING" },
@@ -195,6 +219,23 @@ test("provider errors do not expose raw payloads for any configured service", as
   }
 });
 
+test("HTTP-success envelopes with numeric 503 are retryable without accepting malformed model output", async () => {
+  const cases = [
+    { body: { error: { code: 503, message: "Private upstream availability details." } }, code: "AI_UNAVAILABLE", retryable: true },
+    { body: { error: { code: "503", message: "Unrecognized string code." } }, code: "AI_INVALID_OUTPUT", retryable: false },
+    { body: responseBody({ error: { code: 503 } }), code: "AI_INVALID_OUTPUT", retryable: false },
+  ];
+  for (const entry of cases) {
+    const { adapter, requests } = mockAdapter(entry.body, 200, "openrouter");
+    await assert.rejects(adapter.extract(sources), (error: unknown) => {
+      assert.ok(hasCode(entry.code, entry.retryable)(error));
+      assert.ok(!(error as Error).message.includes("Private upstream"));
+      return true;
+    });
+    assert.equal(requests.length, 1);
+  }
+});
+
 test("transport timeouts are retryable and retain the workflow's single-attempt budget", async () => {
   let calls = 0;
   const model = createProviderModel({ provider: "nvidia", apiKey: "offline-test-key", model: "configured-test-model" }, async (_url, init) => {
@@ -232,10 +273,29 @@ test("assessment preserves deterministic findings, criteria, and headline", asyn
   assert.equal(assessment.summary, draftAssessment().summary.text);
 });
 
+test("assessment does not expose prior prose containing uncitable thresholds or calculated gaps", async () => {
+  const original = reconcile(recordedClaims, baseline);
+  const { adapter, requests } = mockAdapter(responseBody(draftAssessment()));
+  await adapter.assess(original, recordedClaims, baseline);
+  const messages = requests[0].messages as { role: string; content: string }[];
+  const prompt = messages.find((message) => message.role === "user")!.content;
+  assert.ok(!prompt.includes(original.summary));
+  assert.ok(!prompt.includes(original.founderQuestions[0].text));
+  assert.ok(!prompt.includes(baseline.trigger));
+  assert.ok(!prompt.includes(original.criteria[0].explanation));
+  const context = JSON.parse(prompt.replace(/^<untrusted_context>\n/, "").replace(/\n<\/untrusted_context>$/, ""));
+  assert.deepEqual(context.claims, recordedClaims);
+  assert.deepEqual(context.assessment.criteria.map((criterion: { status: string }) => criterion.status), original.criteria.map((criterion) => criterion.status));
+  assert.deepEqual(context.assessment.findings.flatMap((finding: { claimIds: string[] }) => finding.claimIds), original.findings.flatMap((finding) => finding.claimIds));
+});
+
 test("assessment rejects fabricated references, arithmetic, and omitted sides of a conflict", async () => {
   const cases = [
     { summary: { text: "Customers increased.", claimIds: ["invented-claim"] }, code: "AI_INVALID_CITATION" },
     { summary: { text: "There is a difference of 6 customers.", claimIds: conflictIds }, code: "AI_UNSUPPORTED_NUMBER" },
+    { summary: { text: "The 25-customer threshold remains disputed.", claimIds: conflictIds }, code: "AI_UNSUPPORTED_NUMBER" },
+    { summary: { text: "Sources report 24 and 30 paying organizations on 2026‑06‑30.", claimIds: conflictIds }, code: "AI_UNSUPPORTED_NUMBER" },
+    { summary: { text: `The count remains disputed【${conflictIds[0]}】【${conflictIds[1]}】.`, claimIds: conflictIds }, code: "AI_UNSUPPORTED_NUMBER" },
     { summary: { text: "The company has 30 paying organizations.", claimIds: [conflictIds[0]] }, code: "AI_CONFLICT_OMITTED" },
   ];
   for (const { summary, code } of cases) {

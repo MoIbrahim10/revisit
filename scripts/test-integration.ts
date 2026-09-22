@@ -19,6 +19,7 @@ const env = {
   NVIDIA_API_KEY: "",
   AI_PROVIDER: "",
   AI_MODEL: "",
+  AI_REASONING_EFFORT: "",
 };
 
 async function run(args: string[]): Promise<void> {
