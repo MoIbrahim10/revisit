@@ -1,0 +1,46 @@
+name: Revisit security validation
+
+'on':
+  pull_request:
+    branches: [main]
+    paths:
+      - '.node-version'
+      - 'README.md'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/security-validation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out pull request head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Set up patched Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+
+      - name: Install locked dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts --registry=https://registry.npmjs.org
+
+      - name: Audit locked dependencies
+        run: npm audit --package-lock-only --ignore-scripts --registry=https://registry.npmjs.org
+
+      - name: Run domain and AI tests
+        run: npm test
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
