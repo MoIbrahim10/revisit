@@ -8,7 +8,7 @@ The fictional company reports **30 paying organizations in its deck**, **24 in i
 
 ## Run locally
 
-Prerequisites: Node.js 22.12+ and PostgreSQL 18 tools (`initdb`, `pg_ctl`, `psql`) on your PATH. No model API key, paid data subscription, or cloud account is needed.
+Prerequisites: Node.js 22.23.4, 24.22.1, or 26.12.1 (or later in the same major) and PostgreSQL 18 tools (`initdb`, `pg_ctl`, `psql`) on your PATH. The repo pins 22.23.4 in `.node-version`. No model API key, paid data subscription, or cloud account is needed.
 
 ```sh
 npm ci
